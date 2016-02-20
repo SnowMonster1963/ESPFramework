@@ -18,12 +18,15 @@
 #define DELAY 1000 /* milliseconds */
 
 ConfigManager<MQTT_Connect_Params> mqttparms;
-/*
-MQTT_Connect_Params mqttparms  =
+
+// comment out next line to initialize flash with structure below
+#define ALREADY_SAVED
+#ifndef ALREADY_SAVED
+MQTT_Connect_Params staticmqttparms  =
 	{
-			"www.yourhost.com"	//const char host[128]; ,	//
+			"www.yourhost.com",	//const char host[128]; ,	//
 			1883,			// uint16_t port;  14134
-			"ESP8266BoardR2C",		// const char client_id[24];
+			"YourClientID",		// const char client_id[24];
 			"yourusername",		// const char username[16];
 			"yourpassword",		// const char password[16];
 			"Active",		// const char willtopic[128];
@@ -34,8 +37,7 @@ MQTT_Connect_Params mqttparms  =
 			10			// unsigned int keepalive;
 
 		};
-
-*/
+#endif
 
 // =============================================================================================
 // C includes and declarations
@@ -324,6 +326,13 @@ extern "C" void ICACHE_FLASH_ATTR user_init(void)
 
 	MyWifiStatus *proc = new MyWifiStatus();
 	wifi.AttachWiFiEventProcess(proc);
+#ifndef ALREADY_SAVED
+	MQTT_Connect_Params *pmqttparms = &mqttparms;
+	*pmqttparms = staticmqttparms;
+	mqttparms.SaveData();
+#endif
+
+	// for now, we are going to overwrite the client ID to be the same as the WiFi Hostname
 	os_strcpy(mqttparms.client_id,wifi.GetHostName());
 	char buf[256];
 
