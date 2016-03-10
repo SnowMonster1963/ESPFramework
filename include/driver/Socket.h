@@ -90,6 +90,8 @@ public:
 		return Send((const uint8_t *)str,len);
 	}
 
+	Result Close();
+
 	virtual ~Socket();
 };
 

@@ -506,6 +506,19 @@ ICACHE_FLASH_ATTR Socket::Result MQTTSocket::Send(const uint8_t*data,unsigned sh
 
 	}
 
+ICACHE_FLASH_ATTR Socket::Result MQTTSocket::Reconnect()
+	{
+		return Connect(m_parms.host, m_parms.port);
+	}
+
+ICACHE_FLASH_ATTR Socket::Result MQTTSocket::Disconnect()
+	{
+		MQTT_Header hdr;
+		os_memset(&hdr,0,sizeof(hdr));
+		hdr.MessageType = MQTT_DISCONNECT;
+		Send((const byte *)&hdr,sizeof(hdr));
+	}
+
 ICACHE_FLASH_ATTR void MQTTSocket::KeepAlive()
 	{
 		MQTT_Header hdr;

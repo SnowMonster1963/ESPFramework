@@ -186,7 +186,7 @@ void ICACHE_FLASH_ATTR Socket::OnReceive(uint8_t *data, unsigned short len)
 }
 void ICACHE_FLASH_ATTR Socket::OnDnsFound(const char *host, ip_addr_t *ip)
 {
-	ets_uart_printf("Got DNS!\n");
+	//ets_uart_printf("Got DNS!\n");
 }
 
 Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const char *host, int port)
@@ -198,7 +198,7 @@ Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const char *host, int port)
 	{
 		m_State = Connecting;
 		m_pConnection->proto.tcp->remote_port = port;
-		ets_uart_printf("Looking up Hostname!\n");
+		//ets_uart_printf("Looking up Hostname!\n");
 		err_t err = espconn_gethostbyname(m_pConnection, host, &ip,
 				DnsFoundCallback);
 		return MapErrorCode(err);
@@ -220,7 +220,7 @@ Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const ip_addr_t *ip, int port)
 
 	espconn_regist_connectcb(m_pConnection, ConnectCallback);
 	espconn_regist_reconcb(m_pConnection, ReconnectCallback);
-	ets_uart_printf("Connecting!\n");
+	//ets_uart_printf("Connecting!\n");
 	return MapErrorCode(espconn_connect(m_pConnection));
 }
 
@@ -234,6 +234,11 @@ Socket::Result ICACHE_FLASH_ATTR Socket::Send(const uint8_t *data,unsigned short
 	m_State = Sending;
 	err_t err = espconn_send(m_pConnection,(uint8_t *)data,len);
 	return MapErrorCode(err);
+}
+
+Socket::Result ICACHE_FLASH_ATTR Socket::Close()
+{
+	return MapErrorCode(espconn_disconnect(m_pConnection));
 }
 
 bool ICACHE_FLASH_ATTR Socket::IsConnected()

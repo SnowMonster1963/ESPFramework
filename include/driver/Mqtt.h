@@ -137,6 +137,8 @@ public:
 		}
 
 	Socket::Result Send(const uint8_t*data,unsigned short len);
+	virtual Socket::Result Reconnect();
+	virtual Socket::Result Disconnect();
 
 	};
 
