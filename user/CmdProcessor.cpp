@@ -27,6 +27,7 @@
  * 																Query returns '+AT+CLIENTID="client id"' & "OK"
  * 																Max length is 23 chars
  * 																If set to "", uses ESP Network ID
+ * 		AT+AUTOCON			AT+AUTOCON=?		AT+AUTOCON=x	Set auto reconnect functionality, where 'x' is 0 (do not reconnect) or 1 (reconnect if connection lost)
  */
 
 ICACHE_FLASH_ATTR void ErrorMsg(const char *msg)
@@ -49,12 +50,38 @@ public:
 	static void DoAtMqconCmd(const char *cmd);
 	static void DoAtMqdisCmd(const char *cmd);
 	static void DoAtClientidCmd(const char *cmd);
+	static void DoAtAutoconnCmd(const char *cmd);
 
 	// queries
 	static void DoAtTopicQry(const char *cmd);
 	static void DoAtMqttQry(const char *cmd);
 	static void DoAtClientidQry(const char *cmd);
+	static void DoAtAutoconnQry(const char *cmd);
 	};
+
+
+struct CmdTableItem
+	{
+	const char *str;
+	void (*func)(const char *);
+	};
+
+CmdTableItem CmdTable[] =
+		{
+				{"AT\r\n",CmdLineProcessor::DoAtCmd},
+				{"AT+STATUS\r\n",CmdLineProcessor::DoAtStatusCmd},
+				{"AT+TOPIC=?\r\n",CmdLineProcessor::DoAtTopicQry},
+				{"AT+MQTT=?\r\n",CmdLineProcessor::DoAtMqttQry},
+				{"AT+CLIENTID=?\r\n",CmdLineProcessor::DoAtClientidQry},
+				{"AT+CLIENTID=\"",CmdLineProcessor::DoAtClientidCmd},
+				{"AT+TOPIC=\"",CmdLineProcessor::DoAtTopicCmd},
+				{"AT+MQTT=\"",CmdLineProcessor::DoAtMqttCmd},
+				{"AT+MQCON\r\n",CmdLineProcessor::DoAtMqconCmd},
+				{"AT+MQDIS\r\n",CmdLineProcessor::DoAtMqdisCmd},
+				{"AT+AUTOCON=?\r\n",CmdLineProcessor::DoAtAutoconnQry},
+				{"AT+AUTOCON=",CmdLineProcessor::DoAtAutoconnCmd},
+		};
+
 
 ICACHE_FLASH_ATTR CmdLineProcessor::CmdLineProcessor()
 	{
@@ -84,6 +111,10 @@ ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtStatusCmd(const char *cmd)
 
 ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtTopicCmd(const char *cmd)
 	{
+		size_t len = os_strlen(cmd);
+		char buf[len+1];
+		os_strcpy(buf,cmd);
+
 		if(pSock == NULL || pSock->getState() != Socket::Connected)
 			{
 				SendError();
@@ -91,35 +122,40 @@ ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtTopicCmd(const char *cmd)
 			}
 
 		// format: AT+TOPIC="topic","value"
-		const char *p1 = os_strstr(cmd,"\"");
-		if(p1 == NULL)
+
+		// topic
+		char *p = os_strstr(buf,"\"");
+		if(p == NULL)
 			{
-				SendError();
-				return;
-			}
-		p1++;
-		const char *p2 = os_strstr(p1,"\"");
-		if(p2 == NULL)
-			{
-				SendError();
+				ErrorMsg("Invalid Topic");
 				return;
 			}
 
-		size_t len = p2 - p1;
-		char topic[len + 1];
-		os_strncpy(topic,p1,len);
-
-		p1 = p2 + 3;
-		p2 = os_strstr(p1,"\"");
-		if(p2 == NULL)
+		char *topic = p+1;
+		p = os_strstr(topic,"\"");
+		if(p == NULL)
 			{
-				SendError();
+				ErrorMsg("Invalid Topic");
 				return;
 			}
+		*p = 0;
+		p += 2;
 
-		len = p2 - p1 + 1;
-		char value[len + 1];
-		os_strncpy(value,p1,len);
+		// value
+		if(*p != '\"')
+			{
+				ErrorMsg("Invalid Topic Value");
+				return;
+			}
+		char *value = p+1;
+		p = os_strstr(value,"\"");
+		if(p == NULL)
+			{
+				ErrorMsg("Invalid Topic Value");
+				return;
+			}
+		*p = 0;
+
 		pSock->updateTopic(topic,value);
 		SendOK();
 	}
@@ -394,6 +430,29 @@ ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtClientidCmd(const char *cmd)
 		SendOK();
 	}
 
+ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtAutoconnCmd(const char *cmd)
+	{
+		int x = atoi(cmd + os_strlen("AT+AUTOCON="));
+		if(x > 0)
+			{
+				pSock->autoreconnect = true;
+				if(pSock->IsConnected() == false)
+					pSock->Reconnect();
+			}
+		else
+			{
+				pSock->autoreconnect = false;
+			}
+		SendOK();
+	}
+
+ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtAutoconnQry(const char *cmd)
+	{
+		ets_uart_printf("+AT+AUTOCON=%d\r\n", pSock->autoreconnect);
+		SendOK();
+	}
+
+
 ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtTopicQry(const char *cmd)
 	{
 
@@ -434,26 +493,6 @@ ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtClientidQry(const char *cmd)
 				);
 		SendOK();
 	}
-
-struct CmdTableItem
-	{
-	const char *str;
-	void (*func)(const char *);
-	};
-
-CmdTableItem CmdTable[] =
-		{
-				{"AT\r\n",CmdLineProcessor::DoAtCmd},
-				{"AT+STATUS\r\n",CmdLineProcessor::DoAtStatusCmd},
-				{"AT+TOPIC=?\r\n",CmdLineProcessor::DoAtTopicQry},
-				{"AT+MQTT=?\r\n",CmdLineProcessor::DoAtMqttQry},
-				{"AT+CLIENTID=?\r\n",CmdLineProcessor::DoAtClientidQry},
-				{"AT+CLIENTID=\"",CmdLineProcessor::DoAtClientidCmd},
-				{"AT+TOPIC=\"",CmdLineProcessor::DoAtTopicCmd},
-				{"AT+MQTT=\"",CmdLineProcessor::DoAtMqttCmd},
-				{"AT+MQCON\r\n",CmdLineProcessor::DoAtMqconCmd},
-				{"AT+MQDIS\r\n",CmdLineProcessor::DoAtMqdisCmd},
-		};
 
 ICACHE_FLASH_ATTR void CmdLineProcessor::Parse(const char *cmd)
 	{

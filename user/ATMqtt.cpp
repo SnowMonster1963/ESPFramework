@@ -41,7 +41,8 @@ ICACHE_FLASH_ATTR MyMqtt::MyMqtt() : MQTTSocket(mqttparms)
 ICACHE_FLASH_ATTR void MyMqtt::printTopic(size_t idx)
 	{
 		ets_uart_printf("+AT+TOPIC=\"%s\",%d:",arry[idx].Topic,arry[idx].len);
-		UART.send(arry[idx].Value,arry[idx].len);
+		if(arry[idx].len > 0)
+			UART.send(arry[idx].Value,arry[idx].len);
 		ets_uart_printf("\r\n");
 	}
 
@@ -75,6 +76,7 @@ ICACHE_FLASH_ATTR size_t MyMqtt::updateTopic(const char *Topic,const byte *paylo
 							{
 								delete [] arry[i].Value;
 								arry[i].Value = NULL;
+								arry[i].len = 0;
 							}
 						if(len > 0)
 							{
@@ -85,9 +87,24 @@ ICACHE_FLASH_ATTR size_t MyMqtt::updateTopic(const char *Topic,const byte *paylo
 							}
 						printTopic(i);
 						ret = i;
+
+						// if topic value is null, remove the topic from list
+						if(len == 0)
+							{
+								for(size_t n=i;n<(MAX_TOPICS-1);n++)
+									{
+										arry[n] = arry[n+1];
+									}
+								arry[MAX_TOPICS-1].Topic = NULL;
+								arry[MAX_TOPICS-1].Value = NULL;
+								arry[MAX_TOPICS-1].len = 0;
+								topic_len--;
+							}
 					}
 			}
-		if(found == false && topic_len < MAX_TOPICS)
+
+		// only add non-null topics
+		if(found == false && topic_len < MAX_TOPICS && len > 0)
 			{
 				arry[topic_len].Topic = new char[strlen(Topic)+1];
 				os_strcpy(arry[topic_len].Topic,Topic);
@@ -100,6 +117,7 @@ ICACHE_FLASH_ATTR size_t MyMqtt::updateTopic(const char *Topic,const byte *paylo
 				topic_len++;
 			}
 
+		// acknowledge the topic was received
 		char buf[os_strlen(Topic) + 7];
 		os_strcpy(buf,"value/");
 		os_strcat(buf,Topic);
