@@ -266,6 +266,7 @@ ICACHE_FLASH_ATTR void MQTTSocket::GotDisconnect()
 ICACHE_FLASH_ATTR  MQTTSocket::OpResult  MQTTSocket::HandleMsgQueue()
 	{
 		OpResult ret = Queued;
+		InterruptBlocker ib;
 		if (msgs.length() > 0 && getState() == Connected)
 			{
 				MQTTMessage *p = msgs.Peek();
@@ -280,7 +281,6 @@ ICACHE_FLASH_ATTR  MQTTSocket::OpResult  MQTTSocket::HandleMsgQueue()
 					}
 				else
 					{
-						InterruptBlocker ib;
 						p = msgs.Pop();
 						delete p;
 						ret = HandleMsgQueue();
