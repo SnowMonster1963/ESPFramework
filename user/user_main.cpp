@@ -17,7 +17,7 @@ extern "C"
 {
 #include "driver/uart.h"
 // declare lib methods
-extern int ets_uart_printf(const char *fmt, ...);
+extern int os_printf(const char *fmt, ...);
 extern UartDevice UartDev;
 }//extern "C"
 
@@ -76,24 +76,25 @@ public:
 
 LOCAL MyTimer *pTimer = NULL;
 
-
-
 extern "C" void ICACHE_FLASH_ATTR user_init(void)
 {
 	do_global_ctors();
 	// Configure the UART
 	//uart_init(BIT_RATE_115200, BIT_RATE_115200);
-	ets_uart_printf("System init...\r\n");
+    system_set_os_print(0);
+	os_printf("System init...\r\n");
 
 	MyWifiStatus *proc = MyWifiStatus::GetProcess();
 	wifi.AttachWiFiEventProcess(proc);
-#ifndef ALREADY_SAVED
-	MQTT_Connect_Params *pmqttparms = &mqttparms;
-	*pmqttparms = staticmqttparms;
-	mqttparms.SaveData();
-#endif
+	if(mqttparms.IsSaved() == false)
+		{
+			mqttparms.SetDefaultData(&staticmqttparms);
+//		MQTT_Connect_Params *pmqttparms = &mqttparms;
+//		*pmqttparms = staticmqttparms;
+//		mqttparms.SaveData();
+		}
 
-	// for now, we are going to overwrite the client ID to be the same as the WiFi Hostname
+	// for now, we are going to overwrite the client ID to be the same as the WiFi Hostname, if not set
 	if(os_strlen(mqttparms.client_id) == 0)
 		{
 			os_strcpy(mqttparms.client_id,wifi.GetHostName());
@@ -102,16 +103,16 @@ extern "C" void ICACHE_FLASH_ATTR user_init(void)
 	char buf[256];
 
 	if(wifi.IsStation())
-		ets_uart_printf("In Station Mode...\r\n");
+		os_printf("In Station Mode...\r\n");
 	else
 		wifi.EnableStation();
 
 	if(wifi.IsAccessPoint())
-		ets_uart_printf("Is Access Point...\r\n");
+		os_printf("Is Access Point...\r\n");
 	else
 		wifi.EnableAccessPoint();
 
-	pTimer = new MyTimer();
+	//pTimer = new MyTimer();
 	eolp = new MyEOLProcess();
 	UART.SetEOLTask(eolp);
 

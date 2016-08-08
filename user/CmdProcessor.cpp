@@ -13,6 +13,7 @@
 
 /*
  * 		Command Base		Query				Set				Command
+ * 		AX					n/a					n/a				Test command (for debugging)
  * 		AT					n/a					n/a				Tests 'alive'
  * 		AT+STATUS			n/a					n/a				Displays '+WIFI Connected' or '+WIFI Disconnected'
  * 																and '+MQTT Connected' or '+MQTT Disconnected'
@@ -28,6 +29,7 @@
  * 																Max length is 23 chars
  * 																If set to "", uses ESP Network ID
  * 		AT+AUTOCON			AT+AUTOCON=?		AT+AUTOCON=x	Set auto reconnect functionality, where 'x' is 0 (do not reconnect) or 1 (reconnect if connection lost)
+ * 		AT+LOG				AT+LOG=?			AT+LOG=x		Set Logging of OS messages on (1) or off (0)
  */
 
 ICACHE_FLASH_ATTR void ErrorMsg(const char *msg)
@@ -51,12 +53,15 @@ public:
 	static void DoAtMqdisCmd(const char *cmd);
 	static void DoAtClientidCmd(const char *cmd);
 	static void DoAtAutoconnCmd(const char *cmd);
+	static void DoAtLogCmd(const char *cmd);
+	static void DoAtTestCmd(const char *cmd);
 
 	// queries
 	static void DoAtTopicQry(const char *cmd);
 	static void DoAtMqttQry(const char *cmd);
 	static void DoAtClientidQry(const char *cmd);
 	static void DoAtAutoconnQry(const char *cmd);
+	static void DoAtLogQry(const char *cmd);
 	};
 
 
@@ -68,6 +73,7 @@ struct CmdTableItem
 
 CmdTableItem CmdTable[] =
 		{
+				{"AX\r\n",CmdLineProcessor::DoAtTestCmd},
 				{"AT\r\n",CmdLineProcessor::DoAtCmd},
 				{"AT+STATUS\r\n",CmdLineProcessor::DoAtStatusCmd},
 				{"AT+TOPIC=?\r\n",CmdLineProcessor::DoAtTopicQry},
@@ -80,6 +86,8 @@ CmdTableItem CmdTable[] =
 				{"AT+MQDIS\r\n",CmdLineProcessor::DoAtMqdisCmd},
 				{"AT+AUTOCON=?\r\n",CmdLineProcessor::DoAtAutoconnQry},
 				{"AT+AUTOCON=",CmdLineProcessor::DoAtAutoconnCmd},
+				{"AT+LOG=?\r\n",CmdLineProcessor::DoAtLogQry},
+				{"AT+LOG=",CmdLineProcessor::DoAtLogCmd},
 		};
 
 
@@ -506,6 +514,64 @@ ICACHE_FLASH_ATTR void CmdLineProcessor::Parse(const char *cmd)
 			}
 		SendError();
 	}
+
+ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtLogQry(const char *cmd)
+	{
+		ets_uart_printf("+AT+LOG=%d\r\n", (int)system_get_os_print());
+		SendOK();
+	}
+
+ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtLogCmd(const char *cmd)
+	{
+		int x = atoi(cmd + os_strlen("AT+LOG="));
+		if(x > 0)
+			{
+			    system_set_os_print(1);
+			}
+		else
+			{
+			    system_set_os_print(0);
+			}
+		SendOK();
+	}
+
+ICACHE_FLASH_ATTR void CmdLineProcessor::DoAtTestCmd(const char *cmd)
+	{
+		struct softap_config cfg;
+		/*
+		 * struct softap_config {
+			uint8 ssid[32];
+			uint8 password[64];
+			uint8 ssid_len;	// Note: Recommend to set it according to your ssid
+			uint8 channel;	// Note: support 1 ~ 13
+			AUTH_MODE authmode;	// Note: Don't support AUTH_WEP in softAP mode.
+			uint8 ssid_hidden;	// Note: default 0
+			uint8 max_connection;	// Note: default 4, max 4
+			uint16 beacon_interval;	// Note: support 100 ~ 60000 ms, default 100
+		};
+		 */
+
+		ets_uart_printf("wifi_softap_dhcps_status = %d\r\n",wifi_softap_dhcps_status());
+		ets_uart_printf("wifi_get_phy_mode = %d\r\n",wifi_get_phy_mode());
+
+		wifi_softap_get_config(&cfg);
+		ets_uart_printf("softap_config.ssid = %s\r\n",(char*)cfg.ssid);
+		ets_uart_printf("softap_config.password = %s\r\n",(char*)cfg.password);
+		ets_uart_printf("softap_config.ssid_len = %d\r\n",(int)cfg.ssid_len);
+		ets_uart_printf("softap_config.channel = %d\r\n",(int)cfg.channel);
+		ets_uart_printf("softap_config.authmode = %d\r\n",(int)cfg.authmode);
+		ets_uart_printf("softap_config.ssid_hidden = %d\r\n",(int)cfg.ssid_hidden);
+		ets_uart_printf("softap_config.max_connection = %d\r\n",(int)cfg.max_connection);
+		ets_uart_printf("softap_config.beacon_interval = %d\r\n",(int)cfg.beacon_interval);
+		cfg.channel = 1;
+
+		wifi_softap_set_config(&cfg);
+		wifi_set_phy_mode(PHY_MODE_11G);
+
+		SendOK();
+	}
+
+
 
 ICACHE_FLASH_ATTR MyEOLProcess::MyEOLProcess()
 	{

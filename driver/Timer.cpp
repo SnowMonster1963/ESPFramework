@@ -18,7 +18,7 @@ void ICACHE_FLASH_ATTR Timer::callback(void *p)
 }
 
 
-Timer::Timer(uint32_t delay, bool repeat)
+ICACHE_FLASH_ATTR Timer::Timer(uint32_t delay, bool repeat)
 {
 	m_delay = delay;
 	m_repeat = repeat;
@@ -27,12 +27,12 @@ Timer::Timer(uint32_t delay, bool repeat)
 	Start();
 }
 
-void Timer::Start()
+ICACHE_FLASH_ATTR void Timer::Start()
 {
 	os_timer_arm(&timer, m_delay, m_repeat);
 }
 
-void Timer::Stop()
+ICACHE_FLASH_ATTR void Timer::Stop()
 {
 	os_timer_disarm(&timer);
 }

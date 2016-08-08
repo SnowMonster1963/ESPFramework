@@ -61,7 +61,7 @@ void dumpData(const byte *p, size_t len)
 		}
 
 		if(((i+1) % 16) == 0)
-			ets_uart_printf("%s /*%s*/\r\n",hex,chars);
+			os_printf("%s /*%s*/\r\n",hex,chars);
 	}
 	if((i%16) != 0)
 	{
@@ -73,6 +73,6 @@ void dumpData(const byte *p, size_t len)
 				strcat(hex," ");
 			i++;
 		}
-		ets_uart_printf("%s /*%s*/\r\n",hex,chars);
+		os_printf("%s /*%s*/\r\n",hex,chars);
 	}
 }

@@ -14,6 +14,8 @@ extern "C"
 #include <osapi.h>
 #include <os_type.h>
 #include <spi_flash.h>
+#include <user_interface.h>
+#include "espmissingincludes.h"
 extern int ets_uart_printf(const char *fmt, ...);
 }
 

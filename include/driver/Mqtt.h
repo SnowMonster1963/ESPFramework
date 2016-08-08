@@ -97,11 +97,11 @@ private:
 	MQTTKeepAliveTimer *keepalive_timer;
 
 	void DoConnect();
-	void HandleMsgQueue();
+	OpResult HandleMsgQueue();
 	void QueueMessage(const byte *data, unsigned short len);
-	void HandleConnAckEvent(const byte *data, unsigned short len);
-	void HandlePublishEvent(const byte *data, unsigned short len);
-	void HandlePubAckEvent(const byte *data, unsigned short len);
+	unsigned short HandleConnAckEvent(const byte *data, unsigned short len);
+	unsigned short HandlePublishEvent(const byte *data, unsigned short len);
+	unsigned short HandlePubAckEvent(const byte *data, unsigned short len);
 	size_t NextMessageID()
 		{
 			msgid++;

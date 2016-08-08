@@ -66,6 +66,7 @@ ICACHE_FLASH_ATTR void WiFiStatusProcess::OnMessage(const System_Event_t *evt)
 	case EVENT_SOFTAPMODE_STADISCONNECTED:
 		OnAccessClientDisconnected(evt->event_info.sta_disconnected.mac,evt->event_info.sta_disconnected.aid);
 		break;
+	case EVENT_SOFTAPMODE_PROBEREQRECVED:
 	default:
 		break;
 	}

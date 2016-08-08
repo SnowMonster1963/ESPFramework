@@ -33,6 +33,63 @@ LOCAL void uart0_rx_intr_handler(void *para);
 LOCAL void ICACHE_FLASH_ATTR
 uart_config(uint8 uart_no)
 {
+  if (uart_no == UART1)
+  {
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_U1TXD_BK);
+  }
+  else
+  {
+    /* rcv_buff size if 0x100 */
+    ETS_UART_INTR_ATTACH(uart0_rx_intr_handler,  &(UartDev.rcv_buff));
+    PIN_PULLUP_DIS(PERIPHS_IO_MUX_U0TXD_U);
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_U0TXD);
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_U0RTS);
+  }
+
+  uart_div_modify(uart_no, UART_CLK_FREQ / (UartDev.baut_rate));
+
+  WRITE_PERI_REG(UART_CONF0(uart_no), UartDev.exist_parity
+                 | UartDev.parity
+                 | (UartDev.stop_bits << UART_STOP_BIT_NUM_S)
+                 | (UartDev.data_bits << UART_BIT_NUM_S));
+
+  //clear rx and tx fifo,not ready
+  SET_PERI_REG_MASK(UART_CONF0(uart_no), UART_RXFIFO_RST | UART_TXFIFO_RST);
+  CLEAR_PERI_REG_MASK(UART_CONF0(uart_no), UART_RXFIFO_RST | UART_TXFIFO_RST);
+
+  //set rx fifo trigger
+//  WRITE_PERI_REG(UART_CONF1(uart_no),
+//                 ((UartDev.rcv_buff.TrigLvl & UART_RXFIFO_FULL_THRHD) << UART_RXFIFO_FULL_THRHD_S) |
+//                 ((96 & UART_TXFIFO_EMPTY_THRHD) << UART_TXFIFO_EMPTY_THRHD_S) |
+//                 UART_RX_FLOW_EN);
+  if (uart_no == UART0)
+  {
+    //set rx fifo trigger
+    WRITE_PERI_REG(UART_CONF1(uart_no),
+                   ((0x10 & UART_RXFIFO_FULL_THRHD) << UART_RXFIFO_FULL_THRHD_S) |
+                   ((0x10 & UART_RX_FLOW_THRHD) << UART_RX_FLOW_THRHD_S) |
+                   UART_RX_FLOW_EN |
+                   (0x02 & UART_RX_TOUT_THRHD) << UART_RX_TOUT_THRHD_S |
+                   UART_RX_TOUT_EN);
+    SET_PERI_REG_MASK(UART_INT_ENA(uart_no), UART_RXFIFO_TOUT_INT_ENA |
+                      UART_FRM_ERR_INT_ENA);
+  }
+  else
+  {
+    WRITE_PERI_REG(UART_CONF1(uart_no),
+                   ((UartDev.rcv_buff.TrigLvl & UART_RXFIFO_FULL_THRHD) << UART_RXFIFO_FULL_THRHD_S));
+  }
+
+  //clear all interrupt
+  WRITE_PERI_REG(UART_INT_CLR(uart_no), 0xffff);
+  //enable rx_interrupt
+  SET_PERI_REG_MASK(UART_INT_ENA(uart_no), UART_RXFIFO_FULL_INT_ENA);
+}
+
+
+LOCAL void ICACHE_FLASH_ATTR
+uart_config_ORIGINAL(uint8 uart_no)
+{
     if (uart_no == UART1) {
         PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_U1TXD_BK);
     } else {

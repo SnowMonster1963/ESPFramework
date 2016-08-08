@@ -5,8 +5,85 @@
  *      Author: tsnow
  */
 
+//#include <mem.h>
 #include "driver/Stream.h"
 #include "driver/Socket.h"
+#include "driver/Process.h"
+#define os_free(s)        vPortFree(s)
+#define os_malloc(s)      pvPortMalloc(s)
+#define os_calloc(s)      pvPortCalloc(s)
+#define os_realloc(p, s)  pvPortRealloc(p,s)
+#define os_zalloc(s)      pvPortZalloc(s)
+
+ICACHE_FLASH_ATTR SocketDeleter::SocketDeleter() : UserTask<Socket,true>(Priority1Manager)
+{
+
+}
+
+void ICACHE_FLASH_ATTR SocketDeleter::OnMessage(const Socket *sock)
+	{
+	}
+
+SocketDeleter KillSocket;
+
+ICACHE_FLASH_ATTR ListenManager::ListenManager()
+	{
+		for(int i=0;i<sizeof(m_entries)/sizeof(m_entries[0]);i++)
+			{
+				m_entries[i].Listener = NULL;
+				m_entries[i].port = 0;
+			}
+	}
+
+
+bool ICACHE_FLASH_ATTR ListenManager::AddListener(int port,Socket *sock)
+	{
+		// check to see if already listening
+		for(int i=0;i<sizeof(m_entries)/sizeof(m_entries[0]);i++)
+			{
+				if(m_entries[i].port == port)
+						return false;
+			}
+
+		// find a slot
+		for(int i=0;i<sizeof(m_entries)/sizeof(m_entries[0]);i++)
+			{
+				if(m_entries[i].port == 0)
+					{
+						m_entries[i].Listener = sock;
+						m_entries[i].port = port;
+						return true;
+					}
+			}
+		return false;
+	}
+
+void ICACHE_FLASH_ATTR ListenManager::RemoveListener(int port)
+	{
+		for(int i=0;i<sizeof(m_entries)/sizeof(m_entries[0]);i++)
+			{
+				if(m_entries[i].port == port)
+					{
+						m_entries[i].port = 0;
+						m_entries[i].Listener = NULL;
+					}
+			}
+	}
+
+Socket * ICACHE_FLASH_ATTR ListenManager::FindListener(int port)
+	{
+		for(int i=0;i<sizeof(m_entries)/sizeof(m_entries[0]);i++)
+			{
+				if(m_entries[i].port == port)
+					{
+						return m_entries[i].Listener;
+					}
+			}
+
+		return NULL;
+	}
+
+ListenManager Socket::m_ListenManager;
 
 ICACHE_FLASH_ATTR LOCAL Socket::Result MapErrorCode(err_t err)
 {
@@ -39,22 +116,23 @@ ICACHE_FLASH_ATTR LOCAL Socket::Result MapErrorCode(err_t err)
 		break;
 	}
 
-	//ets_uart_printf("Error value is %d\n",(int)err);
+	//os_printf("Error value is %d\n",(int)err);
 
 	return ret;
 }
 
 ICACHE_FLASH_ATTR Socket::Socket()
 {
-	m_pConnection = new espconn;
-	memset(m_pConnection, 0, sizeof(espconn));
-	m_pConnection->proto.tcp = new esp_tcp; // union has same members at beginning as udp
-	m_pConnection->reverse = this;
-	m_pConnection->type = ESPCONN_INVALID;
-	m_pConnection->state = ESPCONN_NONE;
+	m_pConnection = NULL;
+//	memset(m_pConnection, 0, sizeof(espconn));
+//	m_pConnection->proto.tcp = new esp_tcp; // union has same members at beginning as udp
+//	m_pConnection->reverse = this;
+//	m_pConnection->type = ESPCONN_INVALID;
+//	m_pConnection->state = ESPCONN_NONE;
 	m_State = Unconnected;
 
-	m_bOwnConnection = true;
+	m_bOwnConnection = false;
+	m_Factory = NULL;
 }
 
 ICACHE_FLASH_ATTR Socket::Socket(espconn *pConn)
@@ -62,33 +140,62 @@ ICACHE_FLASH_ATTR Socket::Socket(espconn *pConn)
 	m_pConnection = pConn;
 	m_pConnection->reverse = this;
 
-	// need to check whether this is true
-	m_pConnection->type = ESPCONN_INVALID;
-	m_pConnection->state = ESPCONN_NONE;
-	m_State = Unconnected;
-
 	m_bOwnConnection = false;
+	m_Factory = NULL;
 }
 
 ICACHE_FLASH_ATTR Socket::~Socket()
 {
-	if (m_bOwnConnection)
-	{
-		if (m_pConnection->proto.tcp != NULL)
-			delete m_pConnection->proto.tcp;
-		delete m_pConnection;
-	}
-	else
-	{
-		espconn_delete(m_pConnection);
-	}
+	os_printf("Deleting 0x%08x with espconn 0x%08x\r\n",this,m_pConnection);
+	FreeConnection();
 }
+
+void ICACHE_FLASH_ATTR Socket::AllocateConnection(bool isTCP)
+	{
+		if(m_pConnection == NULL)
+			{
+				m_pConnection = new espconn;// (espconn *)os_zalloc(sizeof(espconn));
+				memset(m_pConnection, 0, sizeof(espconn));
+				m_pConnection->proto.tcp = new esp_tcp; // union has same members at beginning as udp
+				m_pConnection->reverse = this;
+				m_pConnection->type = ESPCONN_INVALID;
+				m_pConnection->state = ESPCONN_NONE;
+				m_bOwnConnection = true;
+//				if(isTCP)
+//					m_pConnection->proto.tcp = new esp_tcp;//(esp_tcp *)os_zalloc(sizeof(esp_tcp));
+//				else
+//					m_pConnection->proto.udp = new esp_udp;//(esp_udp *)os_zalloc(sizeof(esp_udp));
+			}
+	}
+
+void ICACHE_FLASH_ATTR Socket::FreeConnection()
+	{
+		if(m_pConnection)
+			{
+				if (m_bOwnConnection)
+				{
+					if (m_pConnection->proto.tcp != NULL)
+						delete m_pConnection->proto.tcp;
+					delete m_pConnection;
+//					os_free(m_pConnection->proto.tcp);	//delete m_pConnection->proto.tcp;
+//				os_free(m_pConnection);	//delete m_pConnection;
+				}
+				else
+				{
+					sint8 err = espconn_delete(m_pConnection);
+					//os_printf("got err = %d from espconn_delete\r\n",(int)err);
+				}
+				m_pConnection = NULL;
+			}
+	}
 
 void ICACHE_FLASH_ATTR Socket::ConnectCallback(void *arg)
 {
 	espconn *pespcon = (espconn*) arg;
-	Socket *p = (Socket *) pespcon->reverse;
-	p->GotConnect();
+	Socket *p = m_ListenManager.FindListener(pespcon->proto.tcp->local_port);
+	if(p == NULL)
+		p = (Socket *) pespcon->reverse;
+	p->GotConnect(pespcon);
 }
 void ICACHE_FLASH_ATTR Socket::ReconnectCallback(void *arg, sint8 err)
 {
@@ -121,15 +228,25 @@ void ICACHE_FLASH_ATTR Socket::DnsFoundCallback(const char *host, ip_addr_t *ip,
 	p->GotDnsFound(host, ip);
 }
 
-void ICACHE_FLASH_ATTR Socket::GotConnect()
+void ICACHE_FLASH_ATTR Socket::GotConnect(espconn *new_connection)
 {
+	//os_printf("Got Connect socket=0x%08x, conn=0x%08x, newconn=0x%08x\n",this,m_pConnection,new_connection);
 	// do some initialization stuff
-	m_State = Connected;
-	espconn_regist_disconcb(m_pConnection, DisconnectCallback);
-	espconn_regist_recvcb(m_pConnection, ReceiveCallback);
-	espconn_regist_sentcb(m_pConnection, SentCallback);
+	if(m_Factory == NULL)	// this socket connected
+		{
+		//os_printf("In GotConnect - non server socket\r\n");
+		m_State = Connected;
+		espconn_regist_disconcb(m_pConnection, DisconnectCallback);
+		espconn_regist_recvcb(m_pConnection, ReceiveCallback);
+		espconn_regist_sentcb(m_pConnection, SentCallback);
 
-	OnConnect();
+		OnConnect();
+		}
+	else					// this socket is listening to new connection
+		{
+		//os_printf("In GotConnect - server socket\r\n");
+		GotListenConnect(new_connection);
+		}
 }
 
 void ICACHE_FLASH_ATTR Socket::GotReconnect(sint8 err)
@@ -140,8 +257,17 @@ void ICACHE_FLASH_ATTR Socket::GotReconnect(sint8 err)
 
 void ICACHE_FLASH_ATTR Socket::GotDisconnect()
 {
+//		if(m_Factory == NULL)	// this socket connected
+//			{
+//				os_printf("In GotDisconnect - non server socket\r\n");
+//			}
+//		else					// this socket is listening to new connection
+//			{
+//			os_printf("In GotDisconnect - server socket\r\n");
+//			}
 	m_State = Unconnected;
 	OnDisconnect();
+	//FreeConnection();
 }
 
 void ICACHE_FLASH_ATTR Socket::GotSent()
@@ -162,31 +288,41 @@ void ICACHE_FLASH_ATTR Socket::GotDnsFound(const char *host, ip_addr_t *ip)
 		Connect(ip, m_pConnection->proto.tcp->remote_port);
 }
 
+void ICACHE_FLASH_ATTR Socket::GotListenConnect(espconn *new_connection)
+{
+	// do some initialization stuff
+	//os_printf("Creating socket local port = %d, remote port = %d\r\n",new_connection->proto.tcp->local_port,new_connection->proto.tcp->remote_port);
+	Socket *pSock = m_Factory->CreateSocket(new_connection);
+	//os_printf("Created socket 0x%08x\r\n",pSock);
+
+	pSock->GotConnect(new_connection);
+}
+
 void ICACHE_FLASH_ATTR Socket::OnConnect()
 {
-	ets_uart_printf("Got Connected!\n");
+	os_printf("Got Connected!\n");
 }
 
 void ICACHE_FLASH_ATTR Socket::OnReconnect(sint8 err)
 {
-	ets_uart_printf("Got Reconnected!\n");
+	os_printf("Got Reconnected!\n");
 }
 void ICACHE_FLASH_ATTR Socket::OnDisconnect()
 {
-	ets_uart_printf("Got Disconnected!\n");
+	os_printf("Got Disconnected!\n");
 }
 void ICACHE_FLASH_ATTR Socket::OnSent()
 {
-	ets_uart_printf("Got Sent!\n");
+	os_printf("Got Sent!\n");
 }
 void ICACHE_FLASH_ATTR Socket::OnReceive(uint8_t *data, unsigned short len)
 {
-	ets_uart_printf("Got Receive!\n");
+	os_printf("Got Receive!\n");
 	UART.send(data,len);
 }
 void ICACHE_FLASH_ATTR Socket::OnDnsFound(const char *host, ip_addr_t *ip)
 {
-	//ets_uart_printf("Got DNS!\n");
+	//os_printf("Got DNS!\n");
 }
 
 Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const char *host, int port)
@@ -196,9 +332,10 @@ Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const char *host, int port)
 	ip.addr = ipaddr_addr(host);	// if it's an x.x.x.x, we skip host lookup
 	if (ip.addr == IPADDR_NONE || ip.addr == IPADDR_ANY)
 	{
+		AllocateConnection();
 		m_State = Connecting;
 		m_pConnection->proto.tcp->remote_port = port;
-		//ets_uart_printf("Looking up Hostname!\n");
+		//os_printf("Looking up Hostname!\n");
 		err_t err = espconn_gethostbyname(m_pConnection, host, &ip,
 				DnsFoundCallback);
 		return MapErrorCode(err);
@@ -211,6 +348,7 @@ Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const char *host, int port)
 
 Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const ip_addr_t *ip, int port)
 {
+	AllocateConnection();
 	m_pConnection->type = ESPCONN_TCP;
 	m_pConnection->proto.tcp->local_port = espconn_port();
 	m_pConnection->proto.tcp->remote_port = port;
@@ -220,7 +358,7 @@ Socket::Result ICACHE_FLASH_ATTR Socket::Connect(const ip_addr_t *ip, int port)
 
 	espconn_regist_connectcb(m_pConnection, ConnectCallback);
 	espconn_regist_reconcb(m_pConnection, ReconnectCallback);
-	//ets_uart_printf("Connecting!\n");
+	//os_printf("Connecting!\n");
 	return MapErrorCode(espconn_connect(m_pConnection));
 }
 
@@ -243,5 +381,42 @@ Socket::Result ICACHE_FLASH_ATTR Socket::Close()
 
 bool ICACHE_FLASH_ATTR Socket::IsConnected()
 {
-	return (m_pConnection->state == ESPCONN_CONNECT);
+	return (m_pConnection != NULL && m_pConnection->state == ESPCONN_CONNECT);
 }
+
+bool ICACHE_FLASH_ATTR Socket::IsListening()
+{
+	return (m_pConnection != NULL && m_pConnection->state == ESPCONN_LISTEN);
+}
+
+Socket::Result ICACHE_FLASH_ATTR Socket::Listen(SocketFactory *factory, int port,uint32 timeout)
+{
+		if(this->m_ListenManager.AddListener(port, this))
+			{
+			AllocateConnection(true);
+			m_pConnection->type = ESPCONN_TCP;
+			m_pConnection->state = ESPCONN_NONE;
+			m_pConnection->proto.tcp->local_port = port;
+			m_Factory = factory;
+
+			//espconn_regist_connectcb(m_pConnection,ListenConnectCallback);
+			espconn_regist_connectcb(m_pConnection, ConnectCallback);
+			err_t err = espconn_accept(m_pConnection);
+			if(err != 0)
+				return MapErrorCode(err);
+			err = espconn_regist_time(m_pConnection,timeout,0);
+			return MapErrorCode(err);
+			}
+		return Error;
+}
+
+
+ICACHE_FLASH_ATTR SocketFactory::SocketFactory()
+	{
+
+	}
+
+ICACHE_FLASH_ATTR SocketFactory::~SocketFactory()
+	{
+
+	}

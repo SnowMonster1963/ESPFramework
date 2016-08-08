@@ -5,13 +5,13 @@
  *      Author: tsnow
  */
 
+#include <ctype.h>
 #include <ATMqtt.h>
 
 
 ConfigManager<MQTT_Connect_Params> mqttparms;
 
 // comment out define in ATMqtt.h to initialize flash with structure below
-#ifndef ALREADY_SAVED
 MQTT_Connect_Params staticmqttparms  =
 	{
 			"www.yourhost.com",	//const char host[128]; ,	//
@@ -27,23 +27,45 @@ MQTT_Connect_Params staticmqttparms  =
 			10			// unsigned int keepalive;
 
 		};
-#endif
-
-
 
 ICACHE_FLASH_ATTR MyMqtt::MyMqtt() : MQTTSocket(mqttparms)
 	{
 		os_memset(arry,0,sizeof(arry));
 		topic_len = 0;
 		autoreconnect = true;
+		//pRetry = NULL;
 	}
 
 ICACHE_FLASH_ATTR void MyMqtt::printTopic(size_t idx)
 	{
-		ets_uart_printf("+AT+TOPIC=\"%s\",%d:",arry[idx].Topic,arry[idx].len);
-		if(arry[idx].len > 0)
-			UART.send(arry[idx].Value,arry[idx].len);
-		ets_uart_printf("\r\n");
+		if(idx < topic_len)
+			{
+				bool isstring = true;
+				size_t i = 0;
+				while(isstring == true && i < arry[idx].len)
+					{
+						int c = (int) arry[idx].Value[i];
+						if(isspace(c) == 0 && isprint(c) == 0)
+							isstring = false;
+						i++;
+					}
+
+				if(isstring)
+					{
+						ets_uart_printf("+AT+TOPIC=\"%s\",\"",arry[idx].Topic);
+						if(arry[idx].len > 0)
+							UART.send(arry[idx].Value,arry[idx].len);
+						ets_uart_printf("\"");
+
+					}
+				else
+					{
+						ets_uart_printf("+AT+TOPIC=\"%s\",%d:",arry[idx].Topic,arry[idx].len);
+						if(arry[idx].len > 0)
+							UART.send(arry[idx].Value,arry[idx].len);
+					}
+				ets_uart_printf("\r\n");
+			}
 	}
 
 ICACHE_FLASH_ATTR void MyMqtt::printTopics()
@@ -57,9 +79,9 @@ ICACHE_FLASH_ATTR void MyMqtt::OnConnack(ConnAckCode x)
 		if(x == Accepted)
 			{
 				Publish(mqttparms.willtopic,"Yes");
-				Subscribe("set/#");
-				ets_uart_printf("Client ID:  %s\r\n",mqttparms.client_id);
+				os_printf("Client ID:  %s\r\n",mqttparms.client_id);
 				ets_uart_printf("+MQTT Connected\r\n");
+				Subscribe("set/#");
 			}
 	}
 
@@ -85,7 +107,7 @@ ICACHE_FLASH_ATTR size_t MyMqtt::updateTopic(const char *Topic,const byte *paylo
 								arry[i].len = len;
 								os_memcpy(arry[i].Value,payload,len);
 							}
-						printTopic(i);
+						//printTopic(i);
 						ret = i;
 
 						// if topic value is null, remove the topic from list
@@ -112,7 +134,7 @@ ICACHE_FLASH_ATTR size_t MyMqtt::updateTopic(const char *Topic,const byte *paylo
 				os_memset(arry[topic_len].Value,0,len+1);
 				arry[topic_len].len = len;
 				os_memcpy(arry[topic_len].Value,payload,len);
-				printTopic(topic_len);
+				//printTopic(topic_len);
 				ret = topic_len;
 				topic_len++;
 			}
@@ -136,6 +158,7 @@ ICACHE_FLASH_ATTR void MyMqtt::OnPublish(const char *topic, const byte *payload,
 	if(os_strstr(topic,"set/") != NULL)
 		{
 			size_t idx = updateTopic(topic+4,payload,len);
+			printTopic(idx);
 		}
 
 	}
@@ -146,6 +169,8 @@ ICACHE_FLASH_ATTR void MyMqtt::OnDisconnect()
 		if(autoreconnect == true)
 			{
 			Reconnect();
+//			if(pRetry == NULL)
+//				pRetry = new MQTTRetryTimer(this,5000);
 			}
 	}
 
@@ -160,5 +185,12 @@ ICACHE_FLASH_ATTR Socket::Result MyMqtt::Reconnect()
 		autoreconnect = true;
 		return MQTTSocket::Reconnect();
 	}
+
+
+//ICACHE_FLASH_ATTR void MQTTRetryTimer::OnTime()
+//	{
+//		if(ptr->autoreconnect && ptr->IsConnected() == false)
+//			ptr->Reconnect();
+//	}
 
 MyMqtt *pSock = NULL;

@@ -20,11 +20,9 @@
 #include "driver/WiFi.h"
 #include "driver/Socket.h"
 #include "driver/Mqtt.h"
+#include "driver/Timer.h"
 
 #define MAX_TOPICS 20
-
-// Comment next line if you want to use the values stored in the static MQTTParms
-#define ALREADY_SAVED
 
 struct MqttTopic
 	{
@@ -33,11 +31,26 @@ struct MqttTopic
 	size_t len;
 	};
 
+//class MyMqtt;
+//
+//class MQTTRetryTimer : public PtrTimer<MyMqtt>
+//{
+//public:
+//	MQTTRetryTimer(MyMqtt *sock,uint32_t delay) : PtrTimer<MyMqtt>(sock,delay,true)
+//	{
+//
+//	};
+//
+//	void OnTime();
+//};
+//
+
 class MyMqtt : public MQTTSocket
 	{
 private:
 	MqttTopic	arry[MAX_TOPICS];
 	size_t		topic_len;
+//	MQTTRetryTimer *pRetry;
 
 	void printTopic(size_t idx);
 

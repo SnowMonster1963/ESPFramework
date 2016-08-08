@@ -103,7 +103,7 @@ ICACHE_FLASH_ATTR UARTStream::UARTStream(UartFlowCtrl flow_control,UartBautRate 
     //enable rx_interrupt
     SET_PERI_REG_MASK(UART_INT_ENA(0), UART_RXFIFO_FULL_INT_ENA);
     ETS_UART_INTR_ENABLE();
-    //os_install_putc1((void *)GlobalTransmit);
+    os_install_putc1((void *)GlobalTransmit);
 
 }
 

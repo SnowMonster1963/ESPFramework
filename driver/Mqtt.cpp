@@ -7,6 +7,7 @@
 
 #include "driver/Mqtt.h"
 #include "driver/Debug.h"
+#include "driver/InterruptBlocker.h"
 
 #define MQTT_CONNECT 	1 // Client request to connect to Server
 #define MQTT_CONNACK 	2 // Connect Acknowledgment
@@ -229,7 +230,7 @@ ICACHE_FLASH_ATTR void MQTTSocket::DoConnect()
 			idx = InsertString(buf, idx, m_parms.password);
 
 		if (idx != buflen)
-			ets_uart_printf("Expected %d for idx but got %d\r\n", buflen, idx);
+			os_printf("Expected %d for idx but got %d\r\n", buflen, idx);
 
 		Send(buf, buflen);
 
@@ -247,7 +248,7 @@ ICACHE_FLASH_ATTR void MQTTSocket::OnReconnect(sint8 err)
 
 ICACHE_FLASH_ATTR void MQTTSocket::OnDisconnect()
 	{
-		ets_uart_printf("Disconnected!\r\n");
+		os_printf("Disconnected!\r\n");
 	}
 
 ICACHE_FLASH_ATTR void MQTTSocket::GotDisconnect()
@@ -262,8 +263,9 @@ ICACHE_FLASH_ATTR void MQTTSocket::GotDisconnect()
 		Socket::GotDisconnect();
 	}
 
-ICACHE_FLASH_ATTR void MQTTSocket::HandleMsgQueue()
+ICACHE_FLASH_ATTR  MQTTSocket::OpResult  MQTTSocket::HandleMsgQueue()
 	{
+		OpResult ret = Queued;
 		if (msgs.length() > 0 && getState() == Connected)
 			{
 				MQTTMessage *p = msgs.Peek();
@@ -271,30 +273,36 @@ ICACHE_FLASH_ATTR void MQTTSocket::HandleMsgQueue()
 					{
 						Socket::Result r = Send(p->msg, p->len);
 						if (r == Success)
-							p->handled = true;
+							{
+								p->handled = true;
+								ret = Sent;
+							}
 					}
 				else
 					{
+						InterruptBlocker ib;
 						p = msgs.Pop();
 						delete p;
-						HandleMsgQueue();
+						ret = HandleMsgQueue();
 					}
 			}
 	}
 
 ICACHE_FLASH_ATTR void MQTTSocket::OnSent()
 	{
-		//ets_uart_printf("Sent Data\r\n");
+		//os_printf("Sent Data\r\n");
 		HandleMsgQueue();
 	}
 
-ICACHE_FLASH_ATTR void MQTTSocket::HandlePublishEvent(const byte *data, unsigned short len)
+ICACHE_FLASH_ATTR unsigned short MQTTSocket::HandlePublishEvent(const byte *data, unsigned short len)
 	{
 		MQTT_Header *ph = (MQTT_Header *) data;
 		Qos qos = (Qos) ph->QoS;
+		bool dup = ph->Dup != 0;
 		unsigned short msgid = 0;
 		size_t rl;
 		size_t idx = getRemainingLen(data, rl);
+		unsigned short ret = 2 + rl;
 
 		size_t topicsize = GetStringLen(data, idx);
 		char topic[topicsize + 1];
@@ -323,62 +331,78 @@ ICACHE_FLASH_ATTR void MQTTSocket::HandlePublishEvent(const byte *data, unsigned
 			ph->MessageType = MQTT_PUBACK;
 			ph->RemainingLength[0] = 2;
 			InsertMessageID(ack,2,msgid);
-			Send(ack,sizeof(ack));
+			QueueMessage(ack,sizeof(ack));
+			HandleMsgQueue();
 			break;
 		case AssuredDelivery:
 			ph->MessageType = MQTT_PUBREC;
 			ph->RemainingLength[0] = 2;
 			InsertMessageID(ack,2,msgid);
-			Send(ack,sizeof(ack));
+			QueueMessage(ack,sizeof(ack));
+			HandleMsgQueue();
 			break;
 			}
-		this->OnPublish(topic + offset, data + idx, rl);
+		//if(!dup)
+			this->OnPublish(topic + offset, data + idx, rl);
+		return ret;
 	}
 
-ICACHE_FLASH_ATTR void MQTTSocket::HandleConnAckEvent(const byte *data, unsigned short len)
+ICACHE_FLASH_ATTR unsigned short MQTTSocket::HandleConnAckEvent(const byte *data, unsigned short len)
 	{
 		if(keepalive_timer == NULL && m_parms.keepalive > 0)
 			keepalive_timer = new MQTTKeepAliveTimer(this,m_parms.keepalive * 1000);
 
 		this->OnConnack((ConnAckCode) data[3]);
+		return 4;
 	}
 
-ICACHE_FLASH_ATTR void MQTTSocket::HandlePubAckEvent(const byte *data, unsigned short len)
+ICACHE_FLASH_ATTR unsigned short MQTTSocket::HandlePubAckEvent(const byte *data, unsigned short len)
 	{
+		return 4;
 	}
 
 ICACHE_FLASH_ATTR void MQTTSocket::OnReceive(uint8_t *data, unsigned short len)
 	{
-//		ets_uart_printf("Receiving Data from MQTT Server:\r\n");
+//		os_printf("Receiving Data from MQTT Server:\r\n");
 //		dumpData(data,len);
-		MQTT_Header *ph = (MQTT_Header *) data;
-		switch (ph->MessageType)
+		unsigned short x;
+		while(len > 0)
 			{
-		//case MQTT_CONNECT:		// 	1 // Client request to connect to Server
-		case MQTT_CONNACK:		// 	2 // Connect Acknowledgment
-			HandleConnAckEvent(data,len);
-			break;
-		case MQTT_PUBLISH:		// 	3 // Publish message
-			HandlePublishEvent(data, len);
-			break;
-		case MQTT_PUBACK:		// 	4 // Publish Acknowledgment
-		case MQTT_PUBREC:		// 	5 // Publish Received (assured delivery part 1)
-		case MQTT_PUBREL:		// 	6 // Publish Release (assured delivery part 2)
-		case MQTT_PUBCOMP:		// 	7 // Publish Complete (assured delivery part 3)
-		case MQTT_SUBSCRIBE:	// 	8 // Client Subscribe request
-		case MQTT_SUBACK:		// 	9 // Subscribe Acknowledgment
-		case MQTT_UNSUBSCRIBE:	// 10 // Client Unsubscribe request
-		case MQTT_UNSUBACK:		// 	11 // Unsubscribe Acknowledgment
-		case MQTT_PINGREQ:		// 	12 // PING Request
-		case MQTT_PINGRESP:		// 	13 // PING Response
-		case MQTT_DISCONNECT:	// 14 // Client is Disconnecting
-		default:
-			break;
+			MQTT_Header *ph = (MQTT_Header *) data;
+			switch (ph->MessageType)
+				{
+			//case MQTT_CONNECT:		// 	1 // Client request to connect to Server
+			case MQTT_CONNACK:		// 	2 // Connect Acknowledgment
+				x = HandleConnAckEvent(data,len);
+				len -= x;
+				data += x;
+				break;
+			case MQTT_PUBLISH:		// 	3 // Publish message
+				x = HandlePublishEvent(data, len);
+				len -= x;
+				data += x;
+				break;
+			case MQTT_PUBACK:		// 	4 // Publish Acknowledgment
+			case MQTT_PUBREC:		// 	5 // Publish Received (assured delivery part 1)
+			case MQTT_PUBREL:		// 	6 // Publish Release (assured delivery part 2)
+			case MQTT_PUBCOMP:		// 	7 // Publish Complete (assured delivery part 3)
+			case MQTT_SUBSCRIBE:	// 	8 // Client Subscribe request
+			case MQTT_SUBACK:		// 	9 // Subscribe Acknowledgment
+			case MQTT_UNSUBSCRIBE:	// 10 // Client Unsubscribe request
+			case MQTT_UNSUBACK:		// 	11 // Unsubscribe Acknowledgment
+			case MQTT_PINGREQ:		// 	12 // PING Request
+			case MQTT_PINGRESP:		// 	13 // PING Response
+			case MQTT_DISCONNECT:	// 14 // Client is Disconnecting
+			default:
+				len = 0;
+				break;
+				}
 			}
 	}
 
 ICACHE_FLASH_ATTR void MQTTSocket::QueueMessage(const byte *data,unsigned short len)
 	{
+		InterruptBlocker ib;
 		MQTTMessage *p = new MQTTMessage(data,len);
 		msgs.Push(p);
 	}
@@ -418,17 +442,8 @@ ICACHE_FLASH_ATTR MQTTSocket::OpResult MQTTSocket::Subscribe(const char *topic, 
 		data[idx++] = (byte)qos;
 
 
-		if(getState() == Connected)
-			{
-				Socket::Result r = Send(data,buflen);
-				if(r == Success)
-					ret = Sent;
-			}
-		else
-			{
-				QueueMessage(data,buflen);
-				ret = Queued;
-			}
+		QueueMessage(data,buflen);
+		ret = HandleMsgQueue();
 
 		return ret;
 	}
@@ -469,18 +484,8 @@ ICACHE_FLASH_ATTR MQTTSocket::OpResult MQTTSocket::Publish(const char *topic, co
 
 		os_memcpy(data+idx,payload,len);
 
-		if(getState() == Connected)
-			{
-				Socket::Result r = Send(data,buflen);
-				if(r == Success)
-					ret = Sent;
-			}
-		else
-			{
-				QueueMessage(data,buflen);
-				ret = Queued;
-			}
-
+		QueueMessage(data,buflen);
+		ret = HandleMsgQueue();
 		return ret;
 	}
 
@@ -493,16 +498,17 @@ ICACHE_FLASH_ATTR void MQTTSocket::OnPublish(const char *topic, const byte *payl
 	char buf[len+1];
 	os_memset(buf,0,len+1);
 	os_memcpy(buf,payload,len);
-	ets_uart_printf("Topic: '%s'\r\nMessage: '%s'\r\n",topic,buf);
+	os_printf("Topic: '%s'\r\nMessage: '%s'\r\n",topic,buf);
 
 	}
 
 ICACHE_FLASH_ATTR Socket::Result MQTTSocket::Send(const uint8_t*data,unsigned short len)
 	{
-//		ets_uart_printf("Sending Data to MQTT Server:\r\n");
+//		os_printf("Sending Data to MQTT Server:\r\n");
 //		dumpData(data,len);
 
-		return Socket::Send(data,len);
+		Socket::Result ret = Socket::Send(data,len);
+		return ret;
 
 	}
 
@@ -516,7 +522,10 @@ ICACHE_FLASH_ATTR Socket::Result MQTTSocket::Disconnect()
 		MQTT_Header hdr;
 		os_memset(&hdr,0,sizeof(hdr));
 		hdr.MessageType = MQTT_DISCONNECT;
-		Send((const byte *)&hdr,sizeof(hdr));
+		if(Send((const byte *)&hdr,sizeof(hdr)) != Success)
+			{
+				QueueMessage((const byte *)&hdr,sizeof(hdr));
+			}
 	}
 
 ICACHE_FLASH_ATTR void MQTTSocket::KeepAlive()
@@ -524,7 +533,10 @@ ICACHE_FLASH_ATTR void MQTTSocket::KeepAlive()
 		MQTT_Header hdr;
 		os_memset(&hdr,0,sizeof(hdr));
 		hdr.MessageType = MQTT_PINGREQ;
-		Send((const byte *)&hdr,sizeof(hdr));
+		if(Send((const byte *)&hdr,sizeof(hdr)) != Success)
+			{
+				QueueMessage((const byte *)&hdr,sizeof(hdr));
+			}
 	}
 
 ICACHE_FLASH_ATTR void MQTTKeepAliveTimer::OnTime()

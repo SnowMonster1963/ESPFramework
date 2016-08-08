@@ -14,6 +14,7 @@ extern "C" {
 #include <os_type.h>
 #include <spi_flash.h>
 }
+#include <driver/utils.h>
 
 #define ESP_PARAM_START_SEC   0x3C
 
@@ -28,6 +29,7 @@ private:
 	uint32_t m_cnt;
 	bool m_first_sector;
 	bool m_saved;
+	uint32_t cksum;
 
 public:
 	ConfigManager() : T()
@@ -35,6 +37,13 @@ public:
 		m_saved = false;
 		LoadData();
 	}
+
+	void SetDefaultData(T *def)
+		{
+			T *p = (T *)this;
+			*p = *def;
+			SaveData();
+		}
 
 
 	bool IsSaved() { return m_saved; };
@@ -68,12 +77,24 @@ public:
 		 }
 		 else
 			 m_first_sector = false;
+		 if(m_saved)
+			 {
+				 T *p = (T *)this;
+				 uint32_t sum = GetCheckSum(p,sizeof(T));
+				 if(sum != cksum)	// corruption
+					 {
+						 os_memset(p,0,sizeof(T));
+						 m_saved = false;
+					 }
+			 }
 	}
 
 	void SaveData()
 	{
 		m_cnt++;
 		m_saved = true;
+		T *p = (T *)this;
+		cksum = GetCheckSum(p,sizeof(T));
 		if(m_first_sector)	// got from 0?  Write to 1
 		{
 	        spi_flash_erase_sector(ESP_PARAM_START_SEC + ESP_PARAM_SAVE_1);
@@ -89,6 +110,7 @@ public:
 
 		m_first_sector = m_first_sector ? false : true;
 	}
+
 };
 
 
